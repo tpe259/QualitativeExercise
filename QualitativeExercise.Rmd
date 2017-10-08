@@ -1,0 +1,119 @@
+---
+title: "On the Classification of Qualitative Characteristics of Physical Exercise"
+author: "Tim Pearce"
+date: "7 October 2017"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Abstract
+
+```{r echo = FALSE,results = "hide"}
+# Download data if needed
+if(!file.exists("pml-training.csv")){
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "pml-training.csv")
+}
+if(!file.exists("pml-testing.csv")){
+        download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "pml-testing.csv")
+}
+# Import data
+pml_train <- read.csv("pml-training.csv")
+pml_test <- read.csv("pml-testing.csv")
+# Load necessary packages
+library(caret)
+library(randomForest)
+```
+
+We compare two classifiers to disinguish correctly-performed exercises (barbell lifts) from the same exercise performed incorrectly in a number of ways.  We then select a final model based on the error rate for the two models.
+
+The approach to data collection is described in Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. "Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements".  Proceedings of 21st Brazilian Symposium on Artificial Intelligence, Advances in Artificial Intelligence - SBIA 2012, in: Lecture Notes in Computer Science, pp. 52-61. Curitiba.
+
+Based on cross-validation of the models on the training data, the best model produced is expected to achieve accuracy of around 99% on unseen data.
+
+## Description and pre-processing of the data
+
+The training data consists of 19622 observations of 159 variables.  However, some variables have many NA or blank values, which we first eliminate to leave 60 variables (including the class variable).  Finally, we remove the first seven columns, which are not meaningful for prediction.
+
+```{r}
+pml_train2 <- pml_train[,colSums(is.na(pml_train))/dim(pml_train)[1] == 0] # Eliminate NA
+pml_train3 <- pml_train2[,colSums(pml_train2 == "") == 0] # Eliminate blanks
+pml_train_clean <- pml_train3[,8:60]
+```
+
+We apply the same transformations to the test data.
+
+```{r echo = FALSE}
+pml_test2 <- pml_test[,colSums(is.na(pml_test))/dim(pml_test)[1] == 0] # Eliminate NA
+pml_test3 <- pml_test2[,colSums(pml_test2 == "") == 0] # Eliminate blanks
+pml_test_clean <- pml_test3[,8:60]
+```
+
+## Model building and evaluation
+
+We compare a simple classifier (Linear Discriminant Analysis) with a more sophisticated one (random forests) which we expect to be more accurate.
+
+We evaluate both on the training set using five-fold cross-validation.  The choice of cross-validation in place of caret's default method of bootstrapping is to improve performance, given the large size of the training set (both in terms of the number of instances and the number of attributes).  All other parameters are left at their default values.
+
+### Model 1: Linear Discriminant Analysis
+
+We now build the first model.
+
+```{r cache = TRUE}
+# Separate predictors from class attribute
+x <- pml_train_clean[,-53]
+y <- pml_train_clean[,53]
+# Set up cross-validation
+set.seed(1729)
+fitControl <- trainControl(method = "cv", number = 5)
+# Build and print model
+modelLDA <- train(x, y, method="lda", data = pml_train_clean, trControl = fitControl)
+print(modelLDA)
+```
+
+We see that the accuracy of this model is quite low (70.1% on the training data), so try to improve upon this performance with a more sophisticated model.
+
+### Model 2
+
+```{r cache = TRUE}
+# Set up cross-validation
+set.seed(9271)
+fitControl <- trainControl(method = "cv", number = 5)
+# Build and print model
+modelRF <- train(x, y, method="rf", data = pml_train_clean, trControl = fitControl)
+print(modelRF)
+```
+
+Accuracy on the cross-validated training data is much higher here, at over 99%.  Here is the associated confusion matrix:
+
+```{r cache = TRUE}
+confusionMatrix(modelRF)
+```
+
+However, we may not achieve the same accuracy on unseen data.  We can estimate the out-of-bag error rate as follows.
+
+```{r cache = TRUE}
+mean(modelRF$finalModel$err.rate[,"OOB"])
+```
+
+We therefore continue to expect an accuracy rate about 99% on the test set.
+
+Since the random forest is the more accurate of the two models, we take this as our final model and apply it to the test set.
+
+## Application of model to test data
+
+We can now predict the class of the test set using the random forest model.  The results are output in order (problem IDs 1-20).
+
+```{r cache = TRUE}
+pml_test_clean$predictedClass <- predict(modelRF, pml_test_clean)
+print(pml_test_clean$predictedClass)
+```
+
+
+
+
